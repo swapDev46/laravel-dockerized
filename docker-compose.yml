@@ -1,0 +1,135 @@
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-laravel
+    restart: unless-stopped
+
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: laravel
+
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123456"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis-laravel
+    restart: unless-stopped
+
+    volumes:
+      - redis-data:/data
+
+    command: redis-server --appendonly yes
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mailpit
+    restart: unless-stopped
+
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+    environment:
+      MP_MAX_MESSAGES: 0
+
+
+  laravel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: laravel
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - .docker-env
+
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+
+    volumes:
+      - ./:/var/www/html/swapshy-projects
+      - /var/www/html/swapshy-projects/vendor
+      - /var/www/html/swapshy-projects/node_modules
+
+    working_dir: /var/www/html/swapshy-projects
+
+    command: php artisan serve --host=0.0.0.0 --port=8000
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+
+  queue-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: laravel-queue
+    restart: unless-stopped
+
+    env_file:
+      - .docker-env
+
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+
+      QUEUE_CONNECTION: redis
+
+    volumes:
+      - ./:/var/www/html/swapshy-projects
+      - /var/www/html/swapshy-projects/vendor
+      - /var/www/html/swapshy-projects/node_modules
+
+    working_dir: /var/www/html/swapshy-projects
+
+    command: php artisan queue:work redis --verbose --tries=3
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+
+volumes:
+  mysql-data:
+  redis-data:
